@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lector de documentos · SIMBAI Lab</title>
+<style>
+:root {
+  --vacio: #07070a; --placa: #101015; --linea: #24242e;
+  --texto: #ececf1; --texto2: #a3a3b5; --texto3: #80809a;
+  --lima: #c8ff00; --rojo: #f87171;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--vacio); color: var(--texto); font: 15px/1.6 "Segoe UI", system-ui, sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 40px 16px 64px; display: grid; gap: 24px; }
+h1 { margin: 0; font-size: clamp(28px, 5vw, 40px); line-height: 1.05; letter-spacing: -0.02em; }
+h1 span { color: var(--lima); }
+h2 { margin: 0 0 10px; font-size: 16px; }
+.marca { font: 600 12px/1 ui-monospace, Consolas, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--lima); }
+.sub { color: var(--texto2); margin: 8px 0 0; }
+.cuerpo { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: start; }
+.bloque { background: var(--placa); border: 1px solid var(--linea); border-radius: 14px; padding: 16px 18px; }
+.zona { display: block; border: 1.5px dashed var(--linea); border-radius: 10px; padding: 18px 12px; text-align: center; cursor: pointer; color: var(--texto2); font-size: 14px; }
+.zona:hover, .zona.encima { border-color: var(--lima); }
+ul { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; font-size: 14px; }
+li { display: flex; justify-content: space-between; gap: 8px; }
+li a { color: var(--texto); text-decoration: none; overflow-wrap: anywhere; }
+li a:hover { color: var(--lima); }
+li small { color: var(--texto3); white-space: nowrap; }
+.nota { color: var(--texto3); font-size: 13px; }
+.carpeta { font: 12px ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
+input, textarea, button { font: inherit; color: var(--texto); background: var(--vacio); border: 1px solid var(--linea); border-radius: 8px; padding: 9px 11px; }
+textarea { width: 100%; resize: vertical; min-height: 80px; }
+button { cursor: pointer; background: var(--placa); }
+button:hover:not(:disabled) { border-color: var(--lima); }
+button:disabled { opacity: .45; cursor: default; }
+button.principal { background: var(--lima); color: var(--vacio); border-color: var(--lima); font-weight: 600; }
+:focus-visible { outline: 2px solid var(--lima); outline-offset: 2px; }
+.fila { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
+.respuesta { white-space: pre-wrap; border-color: var(--lima); }
+.respuesta a { color: var(--lima); text-decoration: none; font-weight: 600; }
+.fuentes { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.fuentes li { display: grid; gap: 4px; background: var(--placa); border: 1px solid var(--linea); border-radius: 10px; padding: 10px 14px; }
+.fuentes li:target { border-color: var(--lima); }
+.fuentes a { color: var(--lima); font-size: 14px; }
+.fuentes p { margin: 0; color: var(--texto2); font-size: 13px; }
+.error { color: var(--rojo); }
+@media (max-width: 760px) { .cuerpo { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="marca">SIMBAI Lab · Lector de documentos</p>
+    <h1>Pregunta a tus documentos, <span>con la página de donde sale.</span></h1>
+    <p class="sub">Contratos, catálogos, procedimientos o normativa. Se leen y se responden en tu ordenador: nada se sube a internet.</p>
+  </header>
+
+  <div class="cuerpo">
+    <aside class="bloque">
+      <h2>Documentos</h2>
+      <label class="zona" id="zona" tabindex="0">
+        Arrastra PDF, TXT o MD aquí, o haz clic
+        <input type="file" id="archivos" accept=".pdf,.txt,.md" multiple hidden>
+      </label>
+      <ul id="lista"></ul>
+      <div class="fila"><button id="indexar">Indexar</button><span id="estado-indice" class="nota" role="status"></span></div>
+      <p class="nota">También puedes copiarlos a la carpeta:<br><span class="carpeta" id="carpeta"></span></p>
+    </aside>
+
+    <section style="display:grid;gap:16px">
+      <form id="form" class="bloque">
+        <label for="pregunta"><h2 style="margin:0 0 8px">Tu pregunta</h2></label>
+        <textarea id="pregunta" required placeholder="¿Cuál es el plazo de preaviso para cancelar el contrato?"></textarea>
+        <div class="fila"><button class="principal" id="preguntar" type="submit">Preguntar</button><span class="nota">Ctrl + Enter</span></div>
+      </form>
+      <p id="estado" class="nota" role="status"></p>
+      <div id="respuesta" class="bloque respuesta" hidden aria-live="polite"></div>
+      <ol id="fuentes" class="fuentes" hidden></ol>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let siguiendo = false;
+
+async function refrescar() {
+  const e = await (await fetch("/estado")).json();
+  $("carpeta").textContent = e.carpeta;
+  $("lista").replaceChildren(...e.documentos.map((d) => {
+    const li = document.createElement("li");
+    const a = document.createElement("a");
+    a.href = d.url; a.target = "_blank"; a.textContent = d.nombre;
+    const s = document.createElement("small");
+    s.textContent = d.indexado ? `${d.trozos} fragmentos` : "sin indexar";
+    li.append(a, s);
+    return li;
+  }));
+  if (!e.documentos.length) $("lista").innerHTML = '<li class="nota">Aún no hay documentos.</li>';
+  $("indexar").disabled = e.indexando;
+  $("estado-indice").classList.toggle("error", !!e.error);
+  $("estado-indice").textContent = e.indexando ? `Indexando ${e.hecho + 1} de ${e.total}…` : (e.error || (e.documentos.some((d) => !d.indexado) ? "Hay documentos sin indexar" : ""));
+  if (e.indexando && !siguiendo) { siguiendo = true; setTimeout(() => { siguiendo = false; refrescar(); }, 1000); }
+}
+
+async function indexar() {
+  await fetch("/indexar", { method: "POST" });
+  setTimeout(refrescar, 300);
+}
+
+async function subir(archivos) {
+  for (const f of archivos) {
+    $("estado-indice").textContent = `Copiando ${f.name}…`;
+    const r = await fetch("/subir", { method: "POST", body: f, headers: { "X-Nombre": encodeURIComponent(f.name) } });
+    if (!r.ok) { $("estado-indice").textContent = `${f.name}: ${(await r.json()).error}`; return; }
+  }
+  indexar();
+}
+
+$("archivos").addEventListener("change", (e) => subir([...e.target.files]));
+$("zona").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("archivos").click(); } });
+$("zona").addEventListener("dragover", (e) => { e.preventDefault(); $("zona").classList.add("encima"); });
+$("zona").addEventListener("dragleave", () => $("zona").classList.remove("encima"));
+$("zona").addEventListener("drop", (e) => { e.preventDefault(); $("zona").classList.remove("encima"); subir([...e.dataTransfer.files]); });
+$("indexar").addEventListener("click", indexar);
+
+function pintarRespuesta(texto) {
+  // Las citas [n] llevan a su fuente de la lista.
+  $("respuesta").replaceChildren(...texto.split(/(\[\d+\])/).map((trozo) => {
+    const m = trozo.match(/^\[(\d+)\]$/);
+    if (!m) return document.createTextNode(trozo);
+    const a = document.createElement("a");
+    a.href = `#fuente-${m[1]}`; a.textContent = trozo;
+    return a;
+  }));
+}
+
+$("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const b = $("preguntar");
+  b.disabled = true;
+  $("estado").textContent = "Buscando en tus documentos… (la primera pregunta tarda más: se cargan los modelos)";
+  $("estado").classList.remove("error");
+  try {
+    const r = await fetch("/preguntar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pregunta: $("pregunta").value }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error);
+    pintarRespuesta(d.respuesta);
+    $("respuesta").hidden = false;
+    $("fuentes").replaceChildren(...d.fuentes.map((f) => {
+      const li = document.createElement("li");
+      li.id = `fuente-${f.n}`;
+      const a = document.createElement("a");
+      a.href = `/doc/${encodeURIComponent(f.doc)}#page=${f.pag}`; a.target = "_blank";
+      a.textContent = `[${f.n}] ${f.doc} · página ${f.pag}`;
+      const p = document.createElement("p");
+      p.textContent = `${f.texto}…`;
+      li.append(a, p);
+      return li;
+    }));
+    $("fuentes").hidden = !d.fuentes.length;
+    $("estado").textContent = d.fuentes.length ? "Comprueba los datos importantes en el documento original." : "";
+  } catch (err) {
+    $("estado").textContent = err.message || "El programa se ha cerrado. Vuelve a abrirlo con iniciar.bat.";
+    $("estado").classList.add("error");
+  }
+  b.disabled = false;
+});
+$("pregunta").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.ctrlKey) $("form").requestSubmit(); });
+
+refrescar();
+</script>
+</body>
+</html>
