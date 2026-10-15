@@ -30,3 +30,7 @@ La primera pregunta tarda más: Ollama carga los modelos en memoria. Con menos d
 | `OLLAMA_URL` | `http://localhost:11434` |
 | `LECTOR_MODELO` | `qwen3:14b` |
 | `LECTOR_MODELO_EMBEDDINGS` | `nomic-embed-text` |
+
+## Licencia
+
+MIT. Puedes usar, copiar, modificar y distribuir el código libremente, también con fines comerciales, manteniendo el aviso de autoría. Ver [LICENSE](LICENSE).
